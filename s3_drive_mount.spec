@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['C:\\Users\\USER\\AppData\\Local\\Temp\\s3_drive_mount9571900398662382928.py'],
+    ['C:\\Users\\USER\\AppData\\Local\\Temp\\s3_drive_mount1017368302886486588.py'],
     pathex=[],
     binaries=[],
     datas=[],

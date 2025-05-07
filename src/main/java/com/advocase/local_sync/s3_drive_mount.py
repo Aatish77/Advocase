@@ -75,7 +75,7 @@ class S3DriveMount:
         #     return "Advocase77"  # fallback root folder    
     def get_folders_from_api(self):
         try:
-            api_url = "http://localhost:8080/api/folders"
+            api_url = "http://192.168.31.7:8080/api/folders"
             response = requests.get(api_url)
             
             if response.status_code == 200:

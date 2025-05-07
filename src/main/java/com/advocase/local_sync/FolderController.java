@@ -179,41 +179,103 @@ public class FolderController {
     @PostMapping("/create-linux-installer")
 public ResponseEntity<Resource> createLinuxInstaller(@RequestParam String advocateId) {
     try {
-        // Create temporary directory for files
+        // Create temporary directory for packaging
         Path tempDir = Files.createTempDirectory("linux-installer");
-        
-        // Generate install script
-        String installScript = generateInstallScript();
-        Files.write(tempDir.resolve("install.sh"), installScript.getBytes());
-        
-        // Generate README
-        String readme = generateReadme();
-        Files.write(tempDir.resolve("README.md"), readme.getBytes());
-        
+
+        // Debian package directory structure
+        Path debianDir = tempDir.resolve("DEBIAN");
+        Files.createDirectories(debianDir);
+
+        Path optDir = tempDir.resolve("opt/s3drivemount");
+        Files.createDirectories(optDir);
+
+        Path configDir = tempDir.resolve("root/.config/s3drivemount");
+        Files.createDirectories(configDir);
+
+        Path systemdDir = tempDir.resolve("lib/systemd/system");
+        Files.createDirectories(systemdDir);
+
+        // Generate control file
+        String controlContent = generateControlFile();
+        Files.write(debianDir.resolve("control"), controlContent.getBytes());
+
+        // Generate postinst script
+        String postinstContent = generatePostinstScript();
+        Path postinstPath = debianDir.resolve("postinst");
+        Files.write(postinstPath, postinstContent.getBytes());
+        postinstPath.toFile().setExecutable(true);
+
         // Copy and modify Python script
         String pythonScript = modifyPythonScript(advocateId);
-        Files.write(tempDir.resolve("s3_drive_mount.py"), pythonScript.getBytes());
-        
-        // Copy config file
-        Files.copy(Paths.get("config.ini"), 
-                  tempDir.resolve("config.ini"));
-        
-        // Create tar file
-        String tarPath = "installation.tar";
-        createTarFile(tempDir, tarPath);
-        
-        // Return tar file as response
-        Resource resource = new FileSystemResource(tarPath);
+        Files.write(optDir.resolve("s3_drive_mount.py"), pythonScript.getBytes());
+
+        // Copy config.ini
+        Files.copy(Paths.get("config.ini"), configDir.resolve("config.ini"));
+
+        // Write systemd service file
+        String serviceContent = generateSystemdService();
+        Files.write(systemdDir.resolve("s3drivemount.service"), serviceContent.getBytes());
+
+        // Build the Debian package
+        String debPath = tempDir.getParent().resolve("s3drivemount_" + advocateId + ".deb").toString();
+        ProcessBuilder pb = new ProcessBuilder("dpkg-deb", "--build", tempDir.toString(), debPath);
+        pb.inheritIO();
+        Process process = pb.start();
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IOException("dpkg-deb failed with exit code " + exitCode);
+        }
+
+        // Return the .deb package as response
+        Resource resource = new FileSystemResource(debPath);
         return ResponseEntity.ok()
-                .header("Content-Disposition", "attachment; filename=\"installation.tar\"")
+                .header("Content-Disposition", "attachment; filename=\"s3drivemount_" + advocateId + ".deb\"")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(resource);
-                
+
     } catch (Exception e) {
         e.printStackTrace();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
     }
 }
+
+private String generateControlFile() {
+    return "Package: s3drivemount\n" +
+           "Version: 1.0\n" +
+           "Section: base\n" +
+           "Priority: optional\n" +
+           "Architecture: all\n" +
+           "Maintainer: Your Name <youremail@example.com>\n" +
+           "Description: S3 Drive Mount Service\n";
+}
+
+private String generatePostinstScript() {
+    return "#!/bin/bash\n" +
+           "set -e\n" +
+           "apt-get update\n" +
+           "apt-get install -y python3 python3-pip\n" +
+           "pip3 install boto3 s3fs pillow pystray watchdog tqdm requests\n" +
+           "chmod +x /opt/s3drivemount/s3_drive_mount.py\n" +
+           "systemctl daemon-reload\n" +
+           "systemctl enable s3drivemount.service\n" +
+           "systemctl start s3drivemount.service\n" +
+           "exit 0\n";
+}
+
+private String generateSystemdService() {
+    return "[Unit]\n" +
+           "Description=S3 Drive Mount Service\n" +
+           "After=network.target\n\n" +
+           "[Service]\n" +
+           "Type=simple\n" +
+           "User=root\n" +
+           "ExecStart=/usr/bin/python3 /opt/s3drivemount/s3_drive_mount.py\n" +
+           "Restart=always\n" +
+           "Environment=PYTHONUNBUFFERED=1\n\n" +
+           "[Install]\n" +
+           "WantedBy=multi-user.target\n";
+}
+
 
 private String generateInstallScript() {
     return "#!/bin/bash\n\n" +
